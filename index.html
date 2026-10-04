@@ -268,6 +268,43 @@
       transition: transform .15s ease, filter .15s ease;
     }
     button:hover { transform: translateY(-2px); filter: brightness(1.06); }
+    .mode-actions {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      margin-top:18px;
+    }
+    .mode-actions button { margin-top:0; }
+    .demo-btn {
+      background:rgba(255,255,255,.09);
+      color:#fff;
+      border:1px solid rgba(255,255,255,.16);
+      box-shadow:none;
+    }
+    .online-btn {
+      background:linear-gradient(90deg,#22d3ee,#86efac);
+      color:#081320;
+    }
+    .mode-note {
+      margin-top:10px;
+      font-size:12px;
+      color:#94a3b8;
+      line-height:1.4;
+    }
+    .mode-badge {
+      pointer-events:none;
+      margin-left:8px;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(7,11,26,.72);
+      font-size:10px;
+      font-weight:1000;
+      letter-spacing:.06em;
+      white-space:nowrap;
+    }
+    .mode-badge.demo { color:#cbd5e1; }
+    .mode-badge.online { color:#86efac; border-color:rgba(134,239,172,.32); }
     .controls {
       margin-top: 16px;
       display: flex;
@@ -303,6 +340,8 @@
       .pill { padding: 8px 10px; font-size: 12px; }
       .music-btn { margin-left:6px; padding:7px 9px; font-size:9px; }
       .wallet-btn, .round-pill { margin-left:5px; padding:7px 8px; font-size:8px; }
+      .mode-badge { margin-left:5px; padding:6px 7px; font-size:7px; }
+      .mode-actions { grid-template-columns:1fr; }
       .brand { display:none; }
       .coin-legend { left: 8px; top: 72px; grid-template-columns: max-content; gap:7px; font-size:10px; padding:8px 9px; }
       .leaderboard-panel { right: 8px; top: 72px; width: 118px; padding: 6px; }
@@ -440,6 +479,7 @@
     <div class="left-hud">
       <div class="brand">SHIBA SPACE RUSH</div>
       <button id="walletBtn" class="wallet-btn" type="button">🔗 CONNECT WALLET</button>
+      <div id="modeBadge" class="mode-badge demo">SELECT MODE</div>
       <div id="roundTimer" class="round-pill">ROUND --:--</div>
       <button id="musicBtn" class="music-btn" type="button" aria-label="Toggle music">🎵 MUSIC ON</button>
     </div>
@@ -467,7 +507,11 @@
       <h1>Shiba Space Rush</h1>
       <p class="tagline">Μάζεψε BTC, ETH, SOL, DOGE, XRP και PEPE — και πρόσεχε τους μετεωρίτες.</p>
       <p class="small">Κινήσου δεξιά-αριστερά με <b>← →</b> ή <b>A / D</b>. Πόντοι: <b>BTC +10</b> · <b>ETH +8</b> · <b>SOL +6</b> · <b>DOGE +4</b> · <b>XRP +3</b> · <b>PEPE +2</b>. Έχεις 2 ζωές: στο πρώτο χτύπημα χάνεις μία καρδιά, στο δεύτερο γίνεται game over.</p>
-      <button id="startBtn">CONNECT WALLET TO PLAY</button>
+      <div class="mode-actions">
+        <button id="demoBtn" class="demo-btn" type="button">PLAY DEMO</button>
+        <button id="startBtn" class="online-btn" type="button">PLAY ONLINE</button>
+      </div>
+      <div class="mode-note">Demo: no wallet, no online score. Online: connect a Solana wallet and compete in the live 8-minute round.</div>
       <div class="controls">
         <span class="key">←</span><span class="key">→</span><span>ή</span><span class="key">A</span><span class="key">D</span><span>για κίνηση</span>
       </div>
@@ -481,6 +525,7 @@
         <div id="scoreStatus" class="score-status"></div>
       </div>
       <button id="restartBtn">PLAY AGAIN</button>
+      <button id="gameOverOnlineBtn" class="online-btn hidden" type="button">CONNECT & PLAY ONLINE</button>
       <div class="controls"><span class="key">R</span><span>για restart</span></div>
     </div>
   </div>
@@ -508,14 +553,19 @@ window.SUPABASE_CONFIG = {
   const finalScore = document.getElementById('finalScore');
   const runSummary = document.getElementById('runSummary');
   const startBtn = document.getElementById('startBtn');
+  const demoBtn = document.getElementById('demoBtn');
   const restartBtn = document.getElementById('restartBtn');
+  const gameOverOnlineBtn = document.getElementById('gameOverOnlineBtn');
   const leaderboardList = document.getElementById('leaderboardList');
+  const leaderboardPanel = document.querySelector('.leaderboard-panel');
+  const playerRankCard = document.querySelector('.player-rank-card');
   const scoreStatus = document.getElementById('scoreStatus');
   const playerRankMain = document.getElementById('playerRankMain');
   const playerRankSub = document.getElementById('playerRankSub');
   const musicBtn = document.getElementById('musicBtn');
   const gameOverFlash = document.getElementById('gameOverFlash');
   const walletBtn = document.getElementById('walletBtn');
+  const modeBadge = document.getElementById('modeBadge');
   const roundTimer = document.getElementById('roundTimer');
   const walletModal = document.getElementById('walletModal');
   const walletList = document.getElementById('walletList');
@@ -663,12 +713,45 @@ window.SUPABASE_CONFIG = {
 
   updateMusicButton();
 
+  let gameMode = null;
+  let pendingOnlineStart = false;
   let connectedWallet = null;
   let connectedAccount = null;
   let activeRoundId = null;
   let roundEndsAtMs = null;
   let serverClockOffsetMs = 0;
   let walletRegistry = null;
+
+  function setGameMode(mode) {
+    gameMode = mode;
+    const online = mode === 'online';
+    modeBadge.textContent = online ? 'ONLINE ROUND' : mode === 'demo' ? 'DEMO MODE' : 'SELECT MODE';
+    modeBadge.classList.toggle('online', online);
+    modeBadge.classList.toggle('demo', !online);
+    leaderboardPanel.classList.toggle('hidden', mode === 'demo');
+    playerRankCard.classList.toggle('hidden', mode === 'demo');
+    roundTimer.classList.toggle('hidden', mode === 'demo');
+  }
+
+  function startDemo() {
+    pendingOnlineStart = false;
+    setGameMode('demo');
+    startMusic();
+    startGame();
+  }
+
+  async function requestOnlinePlay() {
+    pendingOnlineStart = true;
+    setGameMode('online');
+    if (!connectedAccount) {
+      await openWalletModal();
+      return;
+    }
+    pendingOnlineStart = false;
+    await syncRoundClock();
+    startMusic();
+    startGame();
+  }
 
   function shortAddress(address) {
     return address ? address.slice(0,4) + '…' + address.slice(-4) : '';
@@ -793,11 +876,17 @@ window.SUPABASE_CONFIG = {
       walletModal.classList.add('hidden');
       walletBtn.textContent = '🟢 ' + shortAddress(account.address);
       walletBtn.classList.add('connected');
-      startBtn.textContent = 'START GAME';
-      startBtn.disabled = false;
       localStorage.setItem('shibaLastWallet', account.address);
       await renderLeaderboard();
       await refreshPlayerRank();
+
+      if (pendingOnlineStart) {
+        pendingOnlineStart = false;
+        setGameMode('online');
+        await syncRoundClock();
+        startMusic();
+        startGame();
+      }
     } catch (err) {
       connectedWallet = null;
       connectedAccount = null;
@@ -830,7 +919,7 @@ window.SUPABASE_CONFIG = {
       serverClockOffsetMs = serverNow - Date.now();
 
       if (oldRound !== null && oldRound !== activeRoundId) {
-        if (running) endGame(true);
+        if (running && gameMode === 'online') endGame(true);
         await renderLeaderboard();
         await refreshPlayerRank();
       }
@@ -840,6 +929,7 @@ window.SUPABASE_CONFIG = {
   }
 
   function updateRoundTimer() {
+    if (gameMode === 'demo') return;
     if (!roundEndsAtMs) {
       roundTimer.textContent = 'ROUND --:--';
       return;
@@ -1078,18 +1168,23 @@ window.SUPABASE_CONFIG = {
   }
 
   function startGame() {
-    if (!ensureWalletConnected()) return;
-    if (activeRoundId === null) {
-      syncRoundClock();
-      return;
+    if (gameMode === 'online') {
+      if (!ensureWalletConnected()) return;
+      if (activeRoundId === null) {
+        syncRoundClock();
+        return;
+      }
     }
+    if (!gameMode) return;
     resetGame();
     running = true;
     startPanel.classList.add('hidden');
     gameOverPanel.classList.add('hidden');
     gameOverFlash.classList.add('hidden');
+    gameOverOnlineBtn.classList.add('hidden');
     scoreSavedThisRun = false;
     scoreStatus.textContent = '';
+    setGameMode(gameMode);
     last = performance.now();
   }
 
@@ -1113,14 +1208,23 @@ window.SUPABASE_CONFIG = {
       best = final;
       localStorage.setItem('alienCoinBest', best);
       bestEl.textContent = best;
-      runSummary.textContent = 'NEW BEST — ο Shiba hero έγινε legend.';
+      runSummary.textContent = gameMode === 'demo'
+        ? 'NEW DEMO BEST — connect wallet to compete online.'
+        : 'NEW BEST — ο Shiba hero έγινε legend.';
     } else {
-      runSummary.textContent = roundExpired ? 'Ο γύρος των 8 λεπτών ολοκληρώθηκε.' : 'Χάθηκαν και οι 2 καρδιές — GAME OVER.';
+      runSummary.textContent = gameMode === 'demo'
+        ? 'Demo run complete — το score δεν στάλθηκε online.'
+        : (roundExpired ? 'Ο γύρος των 8 λεπτών ολοκληρώθηκε.' : 'Χάθηκαν και οι 2 καρδιές — GAME OVER.');
     }
     setTimeout(() => {
       gameOverFlash.classList.add('hidden');
       gameOverPanel.classList.remove('hidden');
-      saveCurrentScore();
+      if (gameMode === 'online') {
+        saveCurrentScore();
+      } else {
+        scoreStatus.textContent = 'DEMO MODE · score not submitted';
+        gameOverOnlineBtn.classList.remove('hidden');
+      }
     }, 950);
   }
 
@@ -1705,8 +1809,14 @@ window.SUPABASE_CONFIG = {
     requestAnimationFrame(loop);
   }
 
-  startBtn.addEventListener('click', () => { startMusic(); startGame(); });
-  restartBtn.addEventListener('click', () => { startMusic(); startGame(); });
+  demoBtn.addEventListener('click', startDemo);
+  startBtn.addEventListener('click', requestOnlinePlay);
+  restartBtn.addEventListener('click', () => {
+    startMusic();
+    if (gameMode === 'online') requestOnlinePlay();
+    else startDemo();
+  });
+  gameOverOnlineBtn.addEventListener('click', requestOnlinePlay);
   musicBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMusic(); });
   walletBtn.addEventListener('click', (e) => { e.stopPropagation(); openWalletModal(); });
   walletClose.addEventListener('click', () => walletModal.classList.add('hidden'));
@@ -1729,7 +1839,10 @@ window.SUPABASE_CONFIG = {
     if ((left || right) && running) e.preventDefault();
     if (left) player.moveLeft = true;
     if (right) player.moveRight = true;
-    if (restart && gameOver) startGame();
+    if (restart && gameOver) {
+      if (gameMode === 'online') requestOnlinePlay();
+      else startDemo();
+    }
   });
   window.addEventListener('keyup', (e) => {
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') player.moveLeft = false;
@@ -1740,8 +1853,10 @@ window.SUPABASE_CONFIG = {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     pointerX = x;
-    if (!running && !gameOver) { startMusic(); startGame(); }
-    else if (!running && gameOver) { startMusic(); startGame(); }
+    if (!running && gameOver) {
+      if (gameMode === 'online') requestOnlinePlay();
+      else if (gameMode === 'demo') startDemo();
+    }
   });
   canvas.addEventListener('pointermove', (e) => {
     if (e.buttons === 1 || e.pointerType === 'touch') {
@@ -1754,6 +1869,10 @@ window.SUPABASE_CONFIG = {
   window.addEventListener('resize', resize);
   resize();
   resetGame();
+  setGameMode(null);
+  leaderboardPanel.classList.remove('hidden');
+  playerRankCard.classList.remove('hidden');
+  roundTimer.classList.remove('hidden');
   requestAnimationFrame(loop);
 })();
 </script>
