@@ -155,7 +155,10 @@
       background:rgba(255,255,255,.06); color:#fff; border:1px solid rgba(255,255,255,.1);
       padding:11px 12px; border-radius:13px; box-shadow:none; text-align:left;
     }
-    .wallet-option img { width:28px; height:28px; border-radius:7px; }
+    .wallet-option img {
+      width:30px; height:30px; border-radius:8px; object-fit:contain;
+      background:#fff; padding:2px; flex:0 0 30px;
+    }
     .wallet-fallback-icon {
       width:28px; height:28px; border-radius:8px; display:grid; place-items:center;
       background:rgba(255,255,255,.10); font-size:12px; font-weight:1000; color:#fff;
@@ -651,12 +654,12 @@ window.SUPABASE_CONFIG = {
     walletModal.classList.remove('hidden');
 
     const popular = [
-      { name: 'Phantom', match: /phantom/i, url: 'https://phantom.com/' },
-      { name: 'Solflare', match: /solflare/i, url: 'https://www.solflare.com/' },
-      { name: 'Backpack', match: /backpack/i, url: 'https://backpack.app/' },
-      { name: 'Trust Wallet', match: /trust/i, url: 'https://trustwallet.com/' },
-      { name: 'Coinbase Wallet', match: /coinbase/i, url: 'https://www.coinbase.com/wallet' },
-      { name: 'OKX Wallet', match: /okx/i, url: 'https://web3.okx.com/download' }
+      { name: 'Phantom', match: /phantom/i, url: 'https://phantom.com/', icon: 'https://www.google.com/s2/favicons?domain=phantom.com&sz=128' },
+      { name: 'Solflare', match: /solflare/i, url: 'https://www.solflare.com/', icon: 'https://www.google.com/s2/favicons?domain=solflare.com&sz=128' },
+      { name: 'Backpack', match: /backpack/i, url: 'https://backpack.app/', icon: 'https://www.google.com/s2/favicons?domain=backpack.app&sz=128' },
+      { name: 'Trust Wallet', match: /trust/i, url: 'https://trustwallet.com/', icon: 'https://www.google.com/s2/favicons?domain=trustwallet.com&sz=128' },
+      { name: 'Coinbase Wallet', match: /coinbase/i, url: 'https://www.coinbase.com/wallet', icon: 'https://www.google.com/s2/favicons?domain=coinbase.com&sz=128' },
+      { name: 'OKX Wallet', match: /okx/i, url: 'https://web3.okx.com/download', icon: 'https://www.google.com/s2/favicons?domain=okx.com&sz=128' }
     ];
 
     try {
@@ -664,15 +667,23 @@ window.SUPABASE_CONFIG = {
       walletList.innerHTML = '';
       const used = new Set();
 
-      const addWalletRow = (label, wallet, fallbackUrl) => {
+      const addWalletRow = (label, wallet, fallbackUrl, fallbackIcon) => {
         const btn = document.createElement('button');
         btn.className = 'wallet-option' + (wallet ? '' : ' install');
         btn.type = 'button';
 
-        if (wallet && wallet.icon) {
+        if ((wallet && wallet.icon) || fallbackIcon) {
           const img = document.createElement('img');
-          img.src = wallet.icon;
-          img.alt = '';
+          img.src = (wallet && wallet.icon) ? wallet.icon : fallbackIcon;
+          img.alt = label + ' logo';
+          img.loading = 'lazy';
+          img.onerror = () => {
+            img.style.display = 'none';
+            const fallback = document.createElement('span');
+            fallback.className = 'wallet-fallback-icon';
+            fallback.textContent = label.slice(0,1).toUpperCase();
+            btn.insertBefore(fallback, btn.firstChild);
+          };
           btn.appendChild(img);
         } else {
           const fallback = document.createElement('span');
@@ -702,12 +713,12 @@ window.SUPABASE_CONFIG = {
       for (const provider of popular) {
         const wallet = wallets.find(w => provider.match.test(String(w.name || '')));
         if (wallet) used.add(wallet);
-        addWalletRow(provider.name, wallet || null, provider.url);
+        addWalletRow(provider.name, wallet || null, provider.url, provider.icon);
       }
 
       for (const wallet of wallets) {
         if (!used.has(wallet)) {
-          addWalletRow(wallet.name || 'Solana Wallet', wallet, '#');
+          addWalletRow(wallet.name || 'Solana Wallet', wallet, '#', wallet.icon || null);
         }
       }
 
