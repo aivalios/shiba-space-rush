@@ -156,6 +156,13 @@
       padding:11px 12px; border-radius:13px; box-shadow:none; text-align:left;
     }
     .wallet-option img { width:28px; height:28px; border-radius:7px; }
+    .wallet-fallback-icon {
+      width:28px; height:28px; border-radius:8px; display:grid; place-items:center;
+      background:rgba(255,255,255,.10); font-size:12px; font-weight:1000; color:#fff;
+    }
+    .wallet-option .wallet-name { font-weight:900; }
+    .wallet-option .wallet-action { margin-left:auto; font-size:10px; color:#86efac; font-weight:900; }
+    .wallet-option.install .wallet-action { color:#93c5fd; }
     .wallet-close { width:100%; margin-top:12px; background:rgba(255,255,255,.08); color:#fff; box-shadow:none; }
 
     .pill {
@@ -642,32 +649,78 @@ window.SUPABASE_CONFIG = {
   async function openWalletModal() {
     walletList.innerHTML = '<div class="small">Searching for compatible wallets…</div>';
     walletModal.classList.remove('hidden');
+
+    const popular = [
+      { name: 'Phantom', match: /phantom/i, url: 'https://phantom.com/' },
+      { name: 'Solflare', match: /solflare/i, url: 'https://www.solflare.com/' },
+      { name: 'Backpack', match: /backpack/i, url: 'https://backpack.app/' },
+      { name: 'Trust Wallet', match: /trust/i, url: 'https://trustwallet.com/' },
+      { name: 'Coinbase Wallet', match: /coinbase/i, url: 'https://www.coinbase.com/wallet' },
+      { name: 'OKX Wallet', match: /okx/i, url: 'https://web3.okx.com/download' }
+    ];
+
     try {
       const wallets = await listSolanaWallets();
       walletList.innerHTML = '';
-      if (!wallets.length) {
-        walletList.innerHTML = '<div class="small">No Solana-compatible wallet was detected. Open or install Phantom, Solflare, Backpack, Trust Wallet, Coinbase Wallet, OKX or another wallet with Solana support, then refresh.</div>';
-        return;
-      }
-      for (const wallet of wallets) {
+      const used = new Set();
+
+      const addWalletRow = (label, wallet, fallbackUrl) => {
         const btn = document.createElement('button');
-        btn.className = 'wallet-option';
+        btn.className = 'wallet-option' + (wallet ? '' : ' install');
         btn.type = 'button';
-        if (wallet.icon) {
+
+        if (wallet && wallet.icon) {
           const img = document.createElement('img');
           img.src = wallet.icon;
           img.alt = '';
           btn.appendChild(img);
+        } else {
+          const fallback = document.createElement('span');
+          fallback.className = 'wallet-fallback-icon';
+          fallback.textContent = label.slice(0,1).toUpperCase();
+          btn.appendChild(fallback);
         }
-        const span = document.createElement('span');
-        span.textContent = wallet.name || 'Solana Wallet';
-        btn.appendChild(span);
-        btn.addEventListener('click', () => connectWallet(wallet));
+
+        const name = document.createElement('span');
+        name.className = 'wallet-name';
+        name.textContent = label;
+        btn.appendChild(name);
+
+        const action = document.createElement('span');
+        action.className = 'wallet-action';
+        action.textContent = wallet ? 'CONNECT' : 'OPEN / INSTALL';
+        btn.appendChild(action);
+
+        btn.addEventListener('click', () => {
+          if (wallet) connectWallet(wallet);
+          else window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+        });
+
         walletList.appendChild(btn);
+      };
+
+      for (const provider of popular) {
+        const wallet = wallets.find(w => provider.match.test(String(w.name || '')));
+        if (wallet) used.add(wallet);
+        addWalletRow(provider.name, wallet || null, provider.url);
+      }
+
+      for (const wallet of wallets) {
+        if (!used.has(wallet)) {
+          addWalletRow(wallet.name || 'Solana Wallet', wallet, '#');
+        }
+      }
+
+      if (!wallets.length) {
+        const note = document.createElement('div');
+        note.className = 'small';
+        note.style.marginTop = '8px';
+        note.textContent = 'No wallet extension is currently detected. Choose one above to open/install it.';
+        walletList.appendChild(note);
       }
     } catch (err) {
       console.error(err);
-      walletList.innerHTML = '<div class="small">Could not load wallet connectors. Refresh and try again.</div>';
+      walletList.innerHTML = '<div class="small">Could not detect installed wallets. You can still use the official wallet links after refreshing.</div>';
     }
   }
 
