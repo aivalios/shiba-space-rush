@@ -308,6 +308,10 @@
       .leaderboard-panel { right: 8px; top: 72px; width: 118px; padding: 6px; }
       .leaderboard-row { grid-template-columns: 16px minmax(0,1fr) auto; gap:3px; font-size:9px; padding:3px 4px; }
       .leaderboard-title { font-size:10px; }
+      .player-rank-card { right:8px; top:238px; width:118px; padding:7px; }
+      .player-rank-title { font-size:8px; }
+      .player-rank-main { font-size:10px; }
+      .player-rank-sub { font-size:8px; }
       .legend-icon { width:22px; height:22px; }
       .panel { padding: 24px 20px; }
       .footer-note { display: none; }
@@ -355,6 +359,38 @@
       font-weight: 700;
     }
     .leaderboard-score { color: #facc15; font-weight: 900; }
+    .player-rank-card {
+      position:absolute;
+      right:14px;
+      top:258px;
+      width:145px;
+      z-index:6;
+      background:rgba(7,11,26,.78);
+      border:1px solid rgba(134,239,172,.22);
+      border-radius:14px;
+      padding:9px;
+      backdrop-filter:blur(12px);
+      box-shadow:0 14px 40px rgba(0,0,0,.28);
+      pointer-events:none;
+    }
+    .player-rank-title {
+      font-size:10px;
+      font-weight:900;
+      letter-spacing:.08em;
+      color:#86efac;
+      margin-bottom:5px;
+    }
+    .player-rank-main {
+      font-size:13px;
+      font-weight:1000;
+      color:#fff;
+      line-height:1.25;
+    }
+    .player-rank-sub {
+      margin-top:3px;
+      font-size:10px;
+      color:#94a3b8;
+    }
     .score-save {
       margin-top: 14px;
       display: grid;
@@ -393,6 +429,12 @@
     <div class="leaderboard-title">🏆 TOP 5 PLAYERS</div>
     <div id="leaderboardList" class="leaderboard-list"></div>
   </aside>
+
+  <div class="player-rank-card">
+    <div class="player-rank-title">YOUR ROUND RANK</div>
+    <div id="playerRankMain" class="player-rank-main">CONNECT WALLET</div>
+    <div id="playerRankSub" class="player-rank-sub">Best score: —</div>
+  </div>
 
   <div class="hud">
     <div class="left-hud">
@@ -436,8 +478,6 @@
       <div class="big-score" id="finalScore">0</div>
       <div class="small" id="runSummary">Ο Shiba hero ολοκλήρωσε το run.</div>
       <div class="score-save">
-        <input id="playerName" maxlength="14" placeholder="Nickname" autocomplete="off" />
-        <button id="saveScoreBtn" type="button">SAVE SCORE</button>
         <div id="scoreStatus" class="score-status"></div>
       </div>
       <button id="restartBtn">PLAY AGAIN</button>
@@ -470,9 +510,9 @@ window.SUPABASE_CONFIG = {
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
   const leaderboardList = document.getElementById('leaderboardList');
-  const playerName = document.getElementById('playerName');
-  const saveScoreBtn = document.getElementById('saveScoreBtn');
   const scoreStatus = document.getElementById('scoreStatus');
+  const playerRankMain = document.getElementById('playerRankMain');
+  const playerRankSub = document.getElementById('playerRankSub');
   const musicBtn = document.getElementById('musicBtn');
   const gameOverFlash = document.getElementById('gameOverFlash');
   const walletBtn = document.getElementById('walletBtn');
@@ -757,6 +797,7 @@ window.SUPABASE_CONFIG = {
       startBtn.disabled = false;
       localStorage.setItem('shibaLastWallet', account.address);
       await renderLeaderboard();
+      await refreshPlayerRank();
     } catch (err) {
       connectedWallet = null;
       connectedAccount = null;
@@ -791,6 +832,7 @@ window.SUPABASE_CONFIG = {
       if (oldRound !== null && oldRound !== activeRoundId) {
         if (running) endGame(true);
         await renderLeaderboard();
+        await refreshPlayerRank();
       }
     } catch (err) {
       console.warn('Round clock sync failed', err);
@@ -905,7 +947,7 @@ window.SUPABASE_CONFIG = {
       if (!Array.isArray(raw)) return [];
       return raw
         .filter(x => x && typeof x.name === 'string' && Number.isFinite(Number(x.score)))
-        .map(x => ({ name: x.name.slice(0,14), score: Math.max(0, Math.floor(Number(x.score))) }))
+        .map(x => ({ name: x.name.slice(0,14), wallet_address: x.wallet_address || x.name, score: Math.max(0, Math.floor(Number(x.score))) }))
         .sort((a,b) => b.score - a.score)
         .slice(0,5);
     } catch (_) {
@@ -951,7 +993,7 @@ window.SUPABASE_CONFIG = {
       const sc = document.createElement('span');
       sc.className = 'leaderboard-score';
       if (rows[i]) {
-        name.textContent = rows[i].name;
+        name.textContent = shortAddress(rows[i].wallet_address || rows[i].name);
         sc.textContent = rows[i].score;
       } else {
         name.textContent = '—';
@@ -962,21 +1004,53 @@ window.SUPABASE_CONFIG = {
     }
   }
 
-  async function saveCurrentScore() {
-    if (!gameOver || scoreSavedThisRun) return;
-    const cleanName = playerName.value.trim().replace(/\s+/g,' ').slice(0,14);
-    if (!cleanName) {
-      scoreStatus.textContent = 'Γράψε πρώτα nickname.';
-      playerName.focus();
+  async function refreshPlayerRank() {
+    if (!connectedAccount || activeRoundId === null || !onlineLeaderboardEnabled) {
+      playerRankMain.textContent = connectedAccount ? 'NO SCORE YET' : 'CONNECT WALLET';
+      playerRankSub.textContent = 'Best score: —';
       return;
     }
 
-    saveScoreBtn.disabled = true;
-    scoreStatus.textContent = 'Saving…';
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/rpc/get_player_round_rank`, {
+        method: 'POST',
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAnonKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          p_wallet: connectedAccount.address,
+          p_round_id: activeRoundId
+        })
+      });
+      if (!res.ok) throw new Error('Rank request failed');
+      const data = await res.json();
+      const row = Array.isArray(data) ? data[0] : data;
+
+      if (!row) {
+        playerRankMain.textContent = 'NO SCORE YET';
+        playerRankSub.textContent = 'Best score: —';
+        return;
+      }
+
+      playerRankMain.textContent = `#${row.player_rank} / ${row.total_players}`;
+      playerRankSub.textContent = `Best score: ${row.best_score}`;
+    } catch (err) {
+      console.warn('Player rank unavailable', err);
+      playerRankMain.textContent = 'RANK UNAVAILABLE';
+      playerRankSub.textContent = '';
+    }
+  }
+
+  async function saveCurrentScore() {
+    if (!gameOver || scoreSavedThisRun || !connectedAccount || activeRoundId === null) return;
+
+    scoreSavedThisRun = true;
+    scoreStatus.textContent = 'Saving score…';
 
     if (onlineLeaderboardEnabled) {
       try {
-        if (!connectedAccount || activeRoundId === null) throw new Error('Wallet or round unavailable');
         const res = await fetch(`${supabaseUrl}/rest/v1/rpc/submit_game_score`, {
           method: 'POST',
           headers: {
@@ -986,33 +1060,21 @@ window.SUPABASE_CONFIG = {
           },
           body: JSON.stringify({
             p_wallet: connectedAccount.address,
-            p_name: cleanName,
+            p_name: shortAddress(connectedAccount.address),
             p_score: lastFinishedScore,
             p_round_id: activeRoundId
           })
         });
         if (!res.ok) throw new Error('Save failed');
+        scoreStatus.textContent = 'Score saved ✓';
       } catch (err) {
-        console.warn('Online save failed; saved locally instead.', err);
-        const rows = getLocalLeaderboard();
-        rows.push({ name: cleanName, score: lastFinishedScore });
-        rows.sort((a,b) => b.score - a.score);
-        localStorage.setItem(leaderboardKey, JSON.stringify(rows.slice(0,5)));
-        scoreStatus.textContent = 'Online save failed — saved locally.';
+        console.warn('Online score save failed.', err);
+        scoreStatus.textContent = 'Score save failed.';
       }
-    } else {
-      const rows = getLocalLeaderboard();
-      rows.push({ name: cleanName, score: lastFinishedScore });
-      rows.sort((a,b) => b.score - a.score);
-      localStorage.setItem(leaderboardKey, JSON.stringify(rows.slice(0,5)));
     }
 
-    localStorage.setItem('shibaSpaceRushPlayerName', cleanName);
-    scoreSavedThisRun = true;
-    if (!scoreStatus.textContent.includes('failed')) {
-      scoreStatus.textContent = onlineLeaderboardEnabled ? 'Global score saved ✓' : 'Score saved locally ✓';
-    }
     await renderLeaderboard();
+    await refreshPlayerRank();
   }
 
   function startGame() {
@@ -1027,9 +1089,7 @@ window.SUPABASE_CONFIG = {
     gameOverPanel.classList.add('hidden');
     gameOverFlash.classList.add('hidden');
     scoreSavedThisRun = false;
-    saveScoreBtn.disabled = false;
     scoreStatus.textContent = '';
-    playerName.value = localStorage.getItem('shibaSpaceRushPlayerName') || '';
     last = performance.now();
   }
 
@@ -1060,6 +1120,7 @@ window.SUPABASE_CONFIG = {
     setTimeout(() => {
       gameOverFlash.classList.add('hidden');
       gameOverPanel.classList.remove('hidden');
+      saveCurrentScore();
     }, 950);
   }
 
@@ -1650,11 +1711,14 @@ window.SUPABASE_CONFIG = {
   walletBtn.addEventListener('click', (e) => { e.stopPropagation(); openWalletModal(); });
   walletClose.addEventListener('click', () => walletModal.classList.add('hidden'));
   walletModal.addEventListener('click', (e) => { if (e.target === walletModal) walletModal.classList.add('hidden'); });
-  saveScoreBtn.addEventListener('click', saveCurrentScore);
-  playerName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCurrentScore(); });
-  playerName.value = localStorage.getItem('shibaSpaceRushPlayerName') || '';
-  syncRoundClock().then(renderLeaderboard);
-  setInterval(syncRoundClock, 30000);
+  syncRoundClock().then(async () => {
+    await renderLeaderboard();
+    await refreshPlayerRank();
+  });
+  setInterval(async () => {
+    await syncRoundClock();
+    await refreshPlayerRank();
+  }, 30000);
   setInterval(updateRoundTimer, 250);
 
   window.addEventListener('keydown', (e) => {
