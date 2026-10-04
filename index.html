@@ -117,6 +117,47 @@
     .music-btn:hover { transform: translateY(-1px); filter: brightness(1.08); }
     .music-btn.off { opacity: .55; }
 
+    .wallet-btn, .round-pill {
+      pointer-events: auto;
+      margin-left: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(7,11,26,.72);
+      color: #fff;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .02em;
+      box-shadow: 0 8px 30px rgba(0,0,0,.22);
+      backdrop-filter: blur(12px);
+      white-space: nowrap;
+    }
+    .wallet-btn { cursor:pointer; }
+    .wallet-btn.connected { border-color: rgba(134,239,172,.45); color:#bbf7d0; }
+    .round-pill { pointer-events:none; color:#facc15; }
+    .wallet-modal {
+      position:absolute; inset:0; z-index:30; display:grid; place-items:center;
+      background:rgba(2,6,23,.62); backdrop-filter:blur(8px);
+    }
+    .wallet-modal.hidden { display:none; }
+    .wallet-card {
+      width:min(92vw,420px); max-height:72vh; overflow:auto;
+      background:linear-gradient(180deg,rgba(10,15,38,.97),rgba(16,23,48,.96));
+      border:1px solid rgba(255,255,255,.12); border-radius:22px; padding:20px;
+      box-shadow:0 24px 80px rgba(0,0,0,.5);
+    }
+    .wallet-card h3 { margin:0 0 6px; font-size:22px; }
+    .wallet-card p { margin:0 0 14px; color:#94a3b8; font-size:13px; }
+    .wallet-list { display:grid; gap:8px; }
+    .wallet-option {
+      width:100%; margin:0; display:flex; align-items:center; gap:10px;
+      background:rgba(255,255,255,.06); color:#fff; border:1px solid rgba(255,255,255,.1);
+      padding:11px 12px; border-radius:13px; box-shadow:none; text-align:left;
+    }
+    .wallet-option img { width:28px; height:28px; border-radius:7px; }
+    .wallet-close { width:100%; margin-top:12px; background:rgba(255,255,255,.08); color:#fff; box-shadow:none; }
+
     .pill {
       background: rgba(7,11,26,.62);
       border: 1px solid rgba(255,255,255,.12);
@@ -251,6 +292,8 @@
       .hud { top: 10px; padding: 0 10px; align-items:flex-start; }
       .pill { padding: 8px 10px; font-size: 12px; }
       .music-btn { margin-left:6px; padding:7px 9px; font-size:9px; }
+      .wallet-btn, .round-pill { margin-left:5px; padding:7px 8px; font-size:8px; }
+      .brand { display:none; }
       .coin-legend { left: 8px; top: 72px; grid-template-columns: max-content; gap:7px; font-size:10px; padding:8px 9px; }
       .leaderboard-panel { right: 8px; top: 72px; width: 118px; padding: 6px; }
       .leaderboard-row { grid-template-columns: 16px minmax(0,1fr) auto; gap:3px; font-size:9px; padding:3px 4px; }
@@ -344,6 +387,8 @@
   <div class="hud">
     <div class="left-hud">
       <div class="brand">SHIBA SPACE RUSH</div>
+      <button id="walletBtn" class="wallet-btn" type="button">🔗 CONNECT WALLET</button>
+      <div id="roundTimer" class="round-pill">ROUND --:--</div>
       <button id="musicBtn" class="music-btn" type="button" aria-label="Toggle music">🎵 MUSIC ON</button>
     </div>
     <div class="group">
@@ -355,12 +400,21 @@
 
   <div id="gameOverFlash" class="game-over-flash hidden" aria-hidden="true"><span>GAME OVER</span></div>
 
+  <div id="walletModal" class="wallet-modal hidden">
+    <div class="wallet-card">
+      <h3>Connect Solana Wallet</h3>
+      <p>Choose any compatible Solana wallet detected in your browser.</p>
+      <div id="walletList" class="wallet-list"></div>
+      <button id="walletClose" class="wallet-close" type="button">CLOSE</button>
+    </div>
+  </div>
+
   <div class="center-ui">
     <div class="panel" id="startPanel">
       <h1>Shiba Space Rush</h1>
       <p class="tagline">Μάζεψε BTC, ETH, SOL, DOGE, XRP και PEPE — και πρόσεχε τους μετεωρίτες.</p>
       <p class="small">Κινήσου δεξιά-αριστερά με <b>← →</b> ή <b>A / D</b>. Πόντοι: <b>BTC +10</b> · <b>ETH +8</b> · <b>SOL +6</b> · <b>DOGE +4</b> · <b>XRP +3</b> · <b>PEPE +2</b>. Έχεις 2 ζωές: στο πρώτο χτύπημα χάνεις μία καρδιά, στο δεύτερο γίνεται game over.</p>
-      <button id="startBtn">START GAME</button>
+      <button id="startBtn">CONNECT WALLET TO PLAY</button>
       <div class="controls">
         <span class="key">←</span><span class="key">→</span><span>ή</span><span class="key">A</span><span class="key">D</span><span>για κίνηση</span>
       </div>
@@ -410,6 +464,11 @@ window.SUPABASE_CONFIG = {
   const scoreStatus = document.getElementById('scoreStatus');
   const musicBtn = document.getElementById('musicBtn');
   const gameOverFlash = document.getElementById('gameOverFlash');
+  const walletBtn = document.getElementById('walletBtn');
+  const roundTimer = document.getElementById('roundTimer');
+  const walletModal = document.getElementById('walletModal');
+  const walletList = document.getElementById('walletList');
+  const walletClose = document.getElementById('walletClose');
 
   let W = 1000, H = 700, DPR = 1;
   let running = false;
@@ -553,6 +612,152 @@ window.SUPABASE_CONFIG = {
 
   updateMusicButton();
 
+  let connectedWallet = null;
+  let connectedAccount = null;
+  let activeRoundId = null;
+  let roundEndsAtMs = null;
+  let serverClockOffsetMs = 0;
+  let walletRegistry = null;
+
+  function shortAddress(address) {
+    return address ? address.slice(0,4) + '…' + address.slice(-4) : '';
+  }
+
+  async function getWalletRegistry() {
+    if (walletRegistry) return walletRegistry;
+    const mod = await import('https://esm.sh/@wallet-standard/app@1.1.0');
+    walletRegistry = mod.getWallets();
+    return walletRegistry;
+  }
+
+  async function listSolanaWallets() {
+    const registry = await getWalletRegistry();
+    return registry.get().filter(w =>
+      w && w.features && w.features['standard:connect'] &&
+      Array.isArray(w.chains) && w.chains.some(ch => String(ch).startsWith('solana:'))
+    );
+  }
+
+  async function openWalletModal() {
+    walletList.innerHTML = '<div class="small">Searching for Solana wallets…</div>';
+    walletModal.classList.remove('hidden');
+    try {
+      const wallets = await listSolanaWallets();
+      walletList.innerHTML = '';
+      if (!wallets.length) {
+        walletList.innerHTML = '<div class="small">No compatible Solana wallet detected. Install or open a Wallet Standard compatible Solana wallet, then refresh.</div>';
+        return;
+      }
+      for (const wallet of wallets) {
+        const btn = document.createElement('button');
+        btn.className = 'wallet-option';
+        btn.type = 'button';
+        if (wallet.icon) {
+          const img = document.createElement('img');
+          img.src = wallet.icon;
+          img.alt = '';
+          btn.appendChild(img);
+        }
+        const span = document.createElement('span');
+        span.textContent = wallet.name || 'Solana Wallet';
+        btn.appendChild(span);
+        btn.addEventListener('click', () => connectWallet(wallet));
+        walletList.appendChild(btn);
+      }
+    } catch (err) {
+      console.error(err);
+      walletList.innerHTML = '<div class="small">Could not load wallet connectors. Refresh and try again.</div>';
+    }
+  }
+
+  async function connectWallet(wallet) {
+    try {
+      const result = await wallet.features['standard:connect'].connect();
+      const account = (result && result.accounts && result.accounts[0]) || (wallet.accounts && wallet.accounts[0]);
+      if (!account || !account.address) throw new Error('No Solana account returned');
+
+      connectedWallet = wallet;
+      connectedAccount = account;
+
+      const signFeature = wallet.features['solana:signMessage'];
+      if (signFeature && account.features && account.features.includes('solana:signMessage')) {
+        const message = new TextEncoder().encode('Shiba Space Rush wallet login\nNo transaction will be sent.');
+        await signFeature.signMessage({ account, message });
+      }
+
+      walletModal.classList.add('hidden');
+      walletBtn.textContent = '🟢 ' + shortAddress(account.address);
+      walletBtn.classList.add('connected');
+      startBtn.textContent = 'START GAME';
+      startBtn.disabled = false;
+      localStorage.setItem('shibaLastWallet', account.address);
+      await renderLeaderboard();
+    } catch (err) {
+      connectedWallet = null;
+      connectedAccount = null;
+      console.error(err);
+      alert(err && err.message ? err.message : 'Wallet connection failed');
+    }
+  }
+
+  async function syncRoundClock() {
+    if (!onlineLeaderboardEnabled) return;
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/rpc/current_game_round`, {
+        method: 'POST',
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAnonKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: '{}'
+      });
+      if (!res.ok) throw new Error('Round sync failed');
+      const data = await res.json();
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) return;
+
+      const oldRound = activeRoundId;
+      activeRoundId = Number(row.round_id);
+      const serverNow = Date.parse(row.server_now);
+      roundEndsAtMs = Date.parse(row.ends_at);
+      serverClockOffsetMs = serverNow - Date.now();
+
+      if (oldRound !== null && oldRound !== activeRoundId) {
+        if (running) endGame(true);
+        await renderLeaderboard();
+      }
+    } catch (err) {
+      console.warn('Round clock sync failed', err);
+    }
+  }
+
+  function updateRoundTimer() {
+    if (!roundEndsAtMs) {
+      roundTimer.textContent = 'ROUND --:--';
+      return;
+    }
+    const now = Date.now() + serverClockOffsetMs;
+    const remaining = Math.max(0, roundEndsAtMs - now);
+    const totalSec = Math.ceil(remaining / 1000);
+    const min = Math.floor(totalSec / 60);
+    const sec = String(totalSec % 60).padStart(2,'0');
+    roundTimer.textContent = `ROUND ${min}:${sec}`;
+
+    if (remaining <= 0 && activeRoundId !== null) {
+      roundEndsAtMs = null;
+      syncRoundClock();
+    }
+  }
+
+  function ensureWalletConnected() {
+    if (!connectedAccount) {
+      openWalletModal();
+      return false;
+    }
+    return true;
+  }
+
   const world = {
     stars: [],
     planets: [],
@@ -647,7 +852,7 @@ window.SUPABASE_CONFIG = {
     if (!onlineLeaderboardEnabled) return getLocalLeaderboard();
     try {
       const res = await fetch(
-        `${supabaseUrl}/rest/v1/leaderboard?select=name,score&order=score.desc,created_at.asc&limit=5`,
+        `${supabaseUrl}/rest/v1/leaderboard?select=name,score,wallet_address&round_id=eq.${activeRoundId ?? -1}&order=score.desc,created_at.asc&limit=5`,
         {
           headers: {
             apikey: supabaseAnonKey,
@@ -706,15 +911,20 @@ window.SUPABASE_CONFIG = {
 
     if (onlineLeaderboardEnabled) {
       try {
-        const res = await fetch(`${supabaseUrl}/rest/v1/leaderboard`, {
+        if (!connectedAccount || activeRoundId === null) throw new Error('Wallet or round unavailable');
+        const res = await fetch(`${supabaseUrl}/rest/v1/rpc/submit_game_score`, {
           method: 'POST',
           headers: {
             apikey: supabaseAnonKey,
             Authorization: `Bearer ${supabaseAnonKey}`,
-            'Content-Type': 'application/json',
-            Prefer: 'return=minimal'
+            'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ name: cleanName, score: lastFinishedScore })
+          body: JSON.stringify({
+            p_wallet: connectedAccount.address,
+            p_name: cleanName,
+            p_score: lastFinishedScore,
+            p_round_id: activeRoundId
+          })
         });
         if (!res.ok) throw new Error('Save failed');
       } catch (err) {
@@ -741,6 +951,11 @@ window.SUPABASE_CONFIG = {
   }
 
   function startGame() {
+    if (!ensureWalletConnected()) return;
+    if (activeRoundId === null) {
+      syncRoundClock();
+      return;
+    }
     resetGame();
     running = true;
     startPanel.classList.add('hidden');
@@ -760,7 +975,7 @@ window.SUPABASE_CONFIG = {
     heart1.parentElement.setAttribute('aria-label', label);
   }
 
-  function endGame() {
+  function endGame(roundExpired = false) {
     running = false;
     gameOver = true;
     stopMusic();
@@ -775,7 +990,7 @@ window.SUPABASE_CONFIG = {
       bestEl.textContent = best;
       runSummary.textContent = 'NEW BEST — ο Shiba hero έγινε legend.';
     } else {
-      runSummary.textContent = 'Χάθηκαν και οι 2 καρδιές — GAME OVER.';
+      runSummary.textContent = roundExpired ? 'Ο γύρος των 8 λεπτών ολοκληρώθηκε.' : 'Χάθηκαν και οι 2 καρδιές — GAME OVER.';
     }
     setTimeout(() => {
       gameOverFlash.classList.add('hidden');
@@ -1367,10 +1582,15 @@ window.SUPABASE_CONFIG = {
   startBtn.addEventListener('click', () => { startMusic(); startGame(); });
   restartBtn.addEventListener('click', () => { startMusic(); startGame(); });
   musicBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMusic(); });
+  walletBtn.addEventListener('click', (e) => { e.stopPropagation(); openWalletModal(); });
+  walletClose.addEventListener('click', () => walletModal.classList.add('hidden'));
+  walletModal.addEventListener('click', (e) => { if (e.target === walletModal) walletModal.classList.add('hidden'); });
   saveScoreBtn.addEventListener('click', saveCurrentScore);
   playerName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCurrentScore(); });
   playerName.value = localStorage.getItem('shibaSpaceRushPlayerName') || '';
-  renderLeaderboard();
+  syncRoundClock().then(renderLeaderboard);
+  setInterval(syncRoundClock, 30000);
+  setInterval(updateRoundTimer, 250);
 
   window.addEventListener('keydown', (e) => {
     const left = e.code === 'ArrowLeft' || e.code === 'KeyA';
