@@ -164,6 +164,31 @@
       pointer-events: auto;
     }
     .hidden { display: none; }
+    .game-over-flash {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+      background: radial-gradient(circle, rgba(127,29,29,.22), rgba(2,6,23,.42));
+      animation: gameOverPulse .9s ease-out both;
+    }
+    .game-over-flash.hidden { display: none; }
+    .game-over-flash span {
+      font-size: clamp(58px, 12vw, 150px);
+      font-weight: 1000;
+      letter-spacing: -.04em;
+      color: #fb7185;
+      text-shadow: 0 0 20px rgba(251,113,133,.75), 0 0 70px rgba(239,68,68,.45);
+      transform: rotate(-2deg);
+    }
+    @keyframes gameOverPulse {
+      0% { opacity: 0; transform: scale(.72); }
+      22% { opacity: 1; transform: scale(1.08); }
+      60% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.04); }
+    }
     h1 {
       margin: 0 0 8px;
       font-size: clamp(34px, 7vw, 72px);
@@ -328,6 +353,8 @@
     </div>
   </div>
 
+  <div id="gameOverFlash" class="game-over-flash hidden" aria-hidden="true"><span>GAME OVER</span></div>
+
   <div class="center-ui">
     <div class="panel" id="startPanel">
       <h1>Shiba Space Rush</h1>
@@ -382,6 +409,7 @@ window.SUPABASE_CONFIG = {
   const saveScoreBtn = document.getElementById('saveScoreBtn');
   const scoreStatus = document.getElementById('scoreStatus');
   const musicBtn = document.getElementById('musicBtn');
+  const gameOverFlash = document.getElementById('gameOverFlash');
 
   let W = 1000, H = 700, DPR = 1;
   let running = false;
@@ -460,12 +488,12 @@ window.SUPABASE_CONFIG = {
   }
 
   async function startMusic() {
-    if (!musicEnabled) return;
     const ac = ensureAudio();
     if (!ac) return;
     if (ac.state === 'suspended') {
       try { await ac.resume(); } catch (_) {}
     }
+    if (!musicEnabled) return;
     if (!musicTimer) {
       playMusicNote();
       musicTimer = setInterval(playMusicNote, 420);
@@ -485,6 +513,42 @@ window.SUPABASE_CONFIG = {
     updateMusicButton();
     if (musicEnabled) await startMusic();
     else stopMusic();
+  }
+
+  function playTone(freq, duration, type = 'sine', volume = 0.08, delay = 0, endFreq = null) {
+    const ac = ensureAudio();
+    if (!ac || ac.state !== 'running') return;
+    const start = ac.currentTime + delay;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, start);
+    if (endFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), start + duration);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.start(start);
+    osc.stop(start + duration + 0.03);
+  }
+
+  function playCoinSfx(value) {
+    const base = 520 + Math.min(10, value) * 22;
+    playTone(base, 0.10, 'square', 0.045, 0, base * 1.12);
+    playTone(base * 1.48, 0.13, 'triangle', 0.055, 0.07, base * 1.72);
+  }
+
+  function playHitSfx() {
+    playTone(145, 0.28, 'sawtooth', 0.085, 0, 62);
+    playTone(78, 0.34, 'square', 0.035, 0.02, 42);
+  }
+
+  function playDefeatSfx() {
+    playTone(330, 0.24, 'triangle', 0.075, 0.00, 285);
+    playTone(247, 0.28, 'triangle', 0.080, 0.20, 205);
+    playTone(165, 0.36, 'sawtooth', 0.070, 0.44, 110);
+    playTone(82, 0.60, 'sine', 0.085, 0.70, 45);
   }
 
   updateMusicButton();
@@ -681,6 +745,7 @@ window.SUPABASE_CONFIG = {
     running = true;
     startPanel.classList.add('hidden');
     gameOverPanel.classList.add('hidden');
+    gameOverFlash.classList.add('hidden');
     scoreSavedThisRun = false;
     saveScoreBtn.disabled = false;
     scoreStatus.textContent = '';
@@ -698,6 +763,9 @@ window.SUPABASE_CONFIG = {
   function endGame() {
     running = false;
     gameOver = true;
+    stopMusic();
+    playDefeatSfx();
+    gameOverFlash.classList.remove('hidden');
     const final = Math.floor(score);
     lastFinishedScore = final;
     finalScore.textContent = final;
@@ -707,9 +775,12 @@ window.SUPABASE_CONFIG = {
       bestEl.textContent = best;
       runSummary.textContent = 'NEW BEST — ο Shiba hero έγινε legend.';
     } else {
-      runSummary.textContent = 'Χάθηκαν και οι 2 καρδιές — game over.';
+      runSummary.textContent = 'Χάθηκαν και οι 2 καρδιές — GAME OVER.';
     }
-    setTimeout(() => gameOverPanel.classList.remove('hidden'), 250);
+    setTimeout(() => {
+      gameOverFlash.classList.add('hidden');
+      gameOverPanel.classList.remove('hidden');
+    }, 950);
   }
 
   const cryptoTypes = [
@@ -826,6 +897,7 @@ window.SUPABASE_CONFIG = {
       c.y += c.vy * dt;
       c.spin += dt*6;
       if (coinHitsPlayer(c)) {
+        playCoinSfx(c.value);
         score += c.value;
         scoreEl.textContent = Math.floor(score);
         world.popups.push({ x: c.x, y: c.y, text: '+' + c.value, color: c.color, life: 0.75 });
@@ -843,6 +915,7 @@ window.SUPABASE_CONFIG = {
       m.rot += m.vr * dt;
       if (meteorHitsPlayer(m) && player.hitCooldown <= 0) {
         lives -= 1;
+        if (lives > 0) playHitSfx();
         updateHearts();
         player.hitCooldown = 1.15;
         burst(player.x + player.w/2, player.y + player.h/2, 30, '#fb7185');
