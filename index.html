@@ -402,9 +402,10 @@
 
   <div id="walletModal" class="wallet-modal hidden">
     <div class="wallet-card">
-      <h3>Connect Solana Wallet</h3>
-      <p>Choose any compatible Solana wallet detected in your browser.</p>
+      <h3>Connect Wallet</h3>
+      <p>Phantom, Solflare, Backpack, Trust Wallet, Coinbase Wallet, OKX and any other wallet that supports a Solana account.</p>
       <div id="walletList" class="wallet-list"></div>
+      <p style="margin-top:12px;font-size:11px;">Rewards use Solana, so the connected account must have a Solana address.</p>
       <button id="walletClose" class="wallet-close" type="button">CLOSE</button>
     </div>
   </div>
@@ -639,13 +640,13 @@ window.SUPABASE_CONFIG = {
   }
 
   async function openWalletModal() {
-    walletList.innerHTML = '<div class="small">Searching for Solana wallets…</div>';
+    walletList.innerHTML = '<div class="small">Searching for compatible wallets…</div>';
     walletModal.classList.remove('hidden');
     try {
       const wallets = await listSolanaWallets();
       walletList.innerHTML = '';
       if (!wallets.length) {
-        walletList.innerHTML = '<div class="small">No compatible Solana wallet detected. Install or open a Wallet Standard compatible Solana wallet, then refresh.</div>';
+        walletList.innerHTML = '<div class="small">No Solana-compatible wallet was detected. Open or install Phantom, Solflare, Backpack, Trust Wallet, Coinbase Wallet, OKX or another wallet with Solana support, then refresh.</div>';
         return;
       }
       for (const wallet of wallets) {
